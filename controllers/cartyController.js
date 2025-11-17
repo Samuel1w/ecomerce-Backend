@@ -1,7 +1,7 @@
 import { pool } from '../db.js';
 
 // Use SAME SECRET as authController
-const SECRET = process.env.JWT_SECRET || 'dalina05';
+const SECRET = process.env.JWT_SECRET;
 
 // ✅ Get all cart items
 // ✅ Get all cart items with parsed subimages
