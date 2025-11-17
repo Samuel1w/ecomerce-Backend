@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
 
 const router = express.Router();   
-const SECRET = 'dalina05';
+const SECRET = process.env.JWT_SECRET;
 
 // REGISTER
 router.post('/register', async (req, res) => {
