@@ -1,5 +1,4 @@
 import { pool } from '../db.js';
-
 import fs from 'fs';
 import path from 'path';
 
@@ -28,18 +27,30 @@ export const uploadProduct = async (req, res) => {
   try {
     const { title, price, category, store, sold } = req.body;
 
-    const thumbnail = req.files?.thumbnail ? `/uploads/${req.files.thumbnail[0].filename}` : null;
-   const subimages = req.files?.subimages
-  ? req.files.subimages.map(file => `/uploads/${file.filename}`)
-  : [];
+    const thumbnail = req.files?.thumbnail
+      ? `/uploads/${req.files.thumbnail[0].filename}`
+      : null;
 
-const query = `
-  INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
-  VALUES ($1, $2, $3, $4, $5, $6, $7::json)
-  RETURNING *
-`;
+    const subimages = req.files?.subimages
+      ? req.files.subimages.map(file => `/uploads/${file.filename}`)
+      : [];
 
-const values = [title, price, category, store, sold || 0, thumbnail, JSON.stringify(subimages)];
+    const query = `
+      INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+
+    // ⛔ Removed JSON.stringify — PostgreSQL accepts text[] directly
+    const values = [
+      title,
+      price,
+      category,
+      store,
+      sold || 0,
+      thumbnail,
+      subimages // <-- now a real JS array
+    ];
 
     const { rows } = await pool.query(query, values);
 
@@ -48,7 +59,6 @@ const values = [title, price, category, store, sold || 0, thumbnail, JSON.string
     res.status(500).json({ error: err.message });
   }
 };
-
 
 export const getProductById = async (req, res) => {
   try {
@@ -61,14 +71,15 @@ export const getProductById = async (req, res) => {
   }
 };
 
-
 export const deleteProduct = async (req, res) => {
   try {
     const id = req.params.id;
     const { rows } = await pool.query('SELECT thumbnail FROM products WHERE id=$1', [id]);
     if (rows.length) {
       const img = rows[0].thumbnail;
-      if (img && fs.existsSync(path.join('.', img))) fs.unlinkSync(path.join('.', img));
+      if (img && fs.existsSync(path.join('.', img))) {
+        fs.unlinkSync(path.join('.', img));
+      }
     }
     await pool.query('DELETE FROM products WHERE id=$1', [id]);
     res.json({ message: 'Product deleted' });
