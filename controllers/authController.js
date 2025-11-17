@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { pool } from '../db.js';
 
-const SECRET = 'dalina05';
+const SECRET = process.env.JWT_SECRET;
 
 // ✅ REGISTER FUNCTION
 export async function register(req, res) {
