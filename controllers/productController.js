@@ -1,5 +1,69 @@
 import { pool } from '../db.js';
 import cloudinary from '../utils/cloudinary.js';
+import fs from 'fs';
+
+/**
+ * Upload a new product (thumbnail + subimages uploaded to Cloudinary)
+ */
+export const uploadProduct = async (req, res) => {
+  try {
+    const { title, price, category, store, sold } = req.body;
+
+    // Validate required fields
+    if (!title || !price || !category || !store) {
+      return res.status(400).json({ message: 'Missing required product fields' });
+    }
+
+    // Check thumbnail
+    if (!req.files?.thumbnail?.length) {
+      return res.status(400).json({ message: 'Missing required parameter - thumbnail' });
+    }
+
+    // Helper function for uploading a single file
+    const uploadFile = async (file) => {
+      const result = await cloudinary.uploader.upload(file.path || file.buffer, {
+        folder: 'luxuria_products'
+      });
+      if (file.path) fs.unlinkSync(file.path); // delete local file if diskStorage
+      return result.secure_url;
+    };
+
+    // Upload thumbnail
+    const thumbnailUrl = await uploadFile(req.files.thumbnail[0]);
+
+    // Upload subimages (if any)
+    const subimagesUrls = [];
+    if (req.files?.subimages?.length > 0) {
+      for (const file of req.files.subimages) {
+        const url = await uploadFile(file);
+        subimagesUrls.push(url);
+      }
+    }
+
+    // Insert into database
+    const query = `
+      INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+    const values = [
+      title,
+      parseFloat(price),
+      category,
+      store,
+      sold || 0,
+      thumbnailUrl,
+      subimagesUrls
+    ];
+
+    const { rows } = await pool.query(query, values);
+    res.status(201).json(rows[0]);
+
+  } catch (err) {
+    console.error('Upload product error:', err.message);
+    res.status(500).json({ message: err.message });
+  }
+};
 
 /**
  * Get all products (with optional search and category filter)
@@ -24,61 +88,7 @@ export const getProducts = async (req, res) => {
   }
 };
 
-/**
- * Upload a new product (thumbnail + subimages uploaded to Cloudinary)
- */
-export const uploadProduct = async (req, res) => {
-  try {
-    const { title, price, category, store, sold } = req.body;
 
-    // Upload thumbnail
-    let thumbnailUrl = null;
-    if (req.files?.thumbnail?.length > 0) {
-      const file = req.files.thumbnail[0];
-      const result = await cloudinary.uploader.upload(file.path, {
-        folder: "luxuria_products"
-      });
-      thumbnailUrl = result.secure_url;
-
-      fs.unlinkSync(file.path); // delete local file after upload
-    }
-
-    // Upload subimages
-    let subimagesUrls = [];
-    if (req.files?.subimages?.length > 0) {
-      for (const file of req.files.subimages) {
-        const result = await cloudinary.uploader.upload(file.path, {
-          folder: "luxuria_products"
-        });
-        subimagesUrls.push(result.secure_url);
-        fs.unlinkSync(file.path);
-      }
-    }
-
-    // Insert into database (array column)
-    const query = `
-      INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-    `;
-    const values = [
-      title,
-      price,
-      category,
-      store,
-      sold || 0,
-      thumbnailUrl,
-      subimagesUrls // <— insert JS array directly
-    ];
-
-    const { rows } = await pool.query(query, values);
-
-    res.json(rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-};
 
 /**
  * Get single product by ID
