@@ -12,8 +12,11 @@ router.post(
   ]),
   uploadProduct
 );
+
 router.get('/:id', getProductById);
 
 router.delete('/delete/:id', deleteProduct);
 
 export default router;
+
+
