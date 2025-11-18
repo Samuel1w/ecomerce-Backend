@@ -1,6 +1,23 @@
 import { pool } from '../db.js';
 import cloudinary from '../utils/cloudinary.js';
-import fs from 'fs';
+import streamifier from 'streamifier';
+
+/**
+ * Uploads a buffer (in-memory file) to Cloudinary
+ * Returns a Promise with the Cloudinary result
+ */
+const uploadFromBuffer = (buffer) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'luxuria_products' },
+      (error, result) => {
+        if (error) reject(error);
+        else resolve(result);
+      }
+    );
+    streamifier.createReadStream(buffer).pipe(stream);
+  });
+};
 
 /**
  * Upload a new product (thumbnail + subimages uploaded to Cloudinary)
@@ -19,28 +36,19 @@ export const uploadProduct = async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameter - thumbnail' });
     }
 
-    // Helper function for uploading a single file
-    const uploadFile = async (file) => {
-      const result = await cloudinary.uploader.upload(file.path || file.buffer, {
-        folder: 'luxuria_products'
-      });
-      if (file.path) fs.unlinkSync(file.path); // delete local file if diskStorage
-      return result.secure_url;
-    };
+    // Upload thumbnail from buffer
+    const thumbnailUrl = await uploadFromBuffer(req.files.thumbnail[0].buffer);
 
-    // Upload thumbnail
-    const thumbnailUrl = await uploadFile(req.files.thumbnail[0]);
-
-    // Upload subimages (if any)
+    // Upload subimages from buffer (if any)
     const subimagesUrls = [];
     if (req.files?.subimages?.length > 0) {
       for (const file of req.files.subimages) {
-        const url = await uploadFile(file);
+        const url = await uploadFromBuffer(file.buffer);
         subimagesUrls.push(url);
       }
     }
 
-    // Insert into database
+    // Insert product into database
     const query = `
       INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -57,6 +65,7 @@ export const uploadProduct = async (req, res) => {
     ];
 
     const { rows } = await pool.query(query, values);
+
     res.status(201).json(rows[0]);
 
   } catch (err) {
