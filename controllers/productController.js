@@ -1,10 +1,10 @@
-import { pool } from '../db.js';
+import { pool } from '../db.js'; 
 import cloudinary from '../utils/cloudinary.js';
 import streamifier from 'streamifier';
 
 /**
  * Uploads a buffer (in-memory file) to Cloudinary
- * Returns a Promise with the Cloudinary result
+ * Returns a Promise with the Cloudinary result object
  */
 const uploadFromBuffer = (buffer) => {
   return new Promise((resolve, reject) => {
@@ -36,15 +36,16 @@ export const uploadProduct = async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameter - thumbnail' });
     }
 
-    // Upload thumbnail from buffer
-    const thumbnailUrl = await uploadFromBuffer(req.files.thumbnail[0].buffer);
+    // Upload thumbnail and store only secure_url
+    const thumbnailResult = await uploadFromBuffer(req.files.thumbnail[0].buffer);
+    const thumbnailUrl = thumbnailResult.secure_url;
 
-    // Upload subimages from buffer (if any)
+    // Upload subimages (if any) and store only secure_url
     const subimagesUrls = [];
     if (req.files?.subimages?.length > 0) {
       for (const file of req.files.subimages) {
-        const url = await uploadFromBuffer(file.buffer);
-        subimagesUrls.push(url);
+        const result = await uploadFromBuffer(file.buffer);
+        subimagesUrls.push(result.secure_url);
       }
     }
 
@@ -97,8 +98,6 @@ export const getProducts = async (req, res) => {
   }
 };
 
-
-
 /**
  * Get single product by ID
  */
@@ -117,7 +116,6 @@ export const getProductById = async (req, res) => {
 
 /**
  * Delete a product by ID
- * Optional: delete images from Cloudinary if desired
  */
 export const deleteProduct = async (req, res) => {
   try {
@@ -127,8 +125,7 @@ export const deleteProduct = async (req, res) => {
 
     if (rows.length) {
       const { thumbnail, subimages } = rows[0];
-
-      // Optional: delete images from Cloudinary (not mandatory)
+      // Optional: delete images from Cloudinary
       // if (thumbnail) await cloudinary.uploader.destroy(getPublicIdFromUrl(thumbnail));
       // for (const url of subimages) await cloudinary.uploader.destroy(getPublicIdFromUrl(url));
     }
@@ -142,10 +139,9 @@ export const deleteProduct = async (req, res) => {
 };
 
 /**
- * Helper function (optional) to extract Cloudinary public_id from URL
+ * Helper function to extract Cloudinary public_id from URL (optional)
  */
 const getPublicIdFromUrl = (url) => {
-  // Example: https://res.cloudinary.com/demo/image/upload/v1234567890/folder/filename.jpg
   const parts = url.split('/');
   const fileWithExtension = parts[parts.length - 1]; // filename.jpg
   const fileName = fileWithExtension.split('.')[0];
