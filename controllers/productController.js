@@ -1,55 +1,49 @@
-import { pool } from '../db.js'; 
+import { pool } from '../db.js';
 import cloudinary from '../utils/cloudinary.js';
 import streamifier from 'streamifier';
 
 /**
  * Uploads a buffer (in-memory file) to Cloudinary
- * Returns a Promise with the Cloudinary result object
+ * Returns a Promise with the Cloudinary secure_url
  */
 const uploadFromBuffer = (buffer) => {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
+    const uploadStream = cloudinary.uploader.upload_stream(
       { folder: 'luxuria_products' },
       (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
+        if (error) return reject(error);
+        resolve(result.secure_url); // only return the URL
       }
     );
-    streamifier.createReadStream(buffer).pipe(stream);
+    streamifier.createReadStream(buffer).pipe(uploadStream);
   });
 };
 
-/**
- * Upload a new product (thumbnail + subimages uploaded to Cloudinary)
- */
 export const uploadProduct = async (req, res) => {
   try {
     const { title, price, category, store, sold } = req.body;
 
-    // Validate required fields
     if (!title || !price || !category || !store) {
       return res.status(400).json({ message: 'Missing required product fields' });
     }
 
-    // Check thumbnail
     if (!req.files?.thumbnail?.length) {
       return res.status(400).json({ message: 'Missing required parameter - thumbnail' });
     }
 
-    // Upload thumbnail and store only secure_url
-    const thumbnailResult = await uploadFromBuffer(req.files.thumbnail[0].buffer);
-    const thumbnailUrl = thumbnailResult.secure_url;
+    // Upload thumbnail
+    const thumbnailUrl = await uploadFromBuffer(req.files.thumbnail[0].buffer);
 
-    // Upload subimages (if any) and store only secure_url
+    // Upload subimages (if any)
     const subimagesUrls = [];
     if (req.files?.subimages?.length > 0) {
       for (const file of req.files.subimages) {
-        const result = await uploadFromBuffer(file.buffer);
-        subimagesUrls.push(result.secure_url);
+        const url = await uploadFromBuffer(file.buffer);
+        subimagesUrls.push(url);
       }
     }
 
-    // Insert product into database
+    // Insert into DB
     const query = `
       INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -66,11 +60,10 @@ export const uploadProduct = async (req, res) => {
     ];
 
     const { rows } = await pool.query(query, values);
-
     res.status(201).json(rows[0]);
 
   } catch (err) {
-    console.error('Upload product error:', err.message);
+    console.error('Upload product error:', err);
     res.status(500).json({ message: err.message });
   }
 };
