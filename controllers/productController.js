@@ -31,61 +31,51 @@ export const uploadProduct = async (req, res) => {
   try {
     const { title, price, category, store, sold } = req.body;
 
-    // Upload thumbnail to Cloudinary
-    let thumbnail = null;
-    if (req.files?.thumbnail) {
+    // Upload thumbnail
+    let thumbnailUrl = null;
+    if (req.files?.thumbnail?.length > 0) {
       const file = req.files.thumbnail[0];
-      thumbnail = await new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          { folder: 'luxuria_products' },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result.secure_url);
-          }
-        );
-        stream.end(file.buffer);
+      const result = await cloudinary.uploader.upload(file.path, {
+        folder: "luxuria_products"
       });
+      thumbnailUrl = result.secure_url;
+
+      fs.unlinkSync(file.path); // delete local file after upload
     }
 
-    // Upload subimages to Cloudinary
-    let subimages = [];
-    if (req.files?.subimages) {
+    // Upload subimages
+    let subimagesUrls = [];
+    if (req.files?.subimages?.length > 0) {
       for (const file of req.files.subimages) {
-        const url = await new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            { folder: 'luxuria_products' },
-            (error, result) => {
-              if (error) reject(error);
-              else resolve(result.secure_url);
-            }
-          );
-          stream.end(file.buffer);
+        const result = await cloudinary.uploader.upload(file.path, {
+          folder: "luxuria_products"
         });
-        subimages.push(url);
+        subimagesUrls.push(result.secure_url);
+        fs.unlinkSync(file.path);
       }
     }
 
-    // Insert product into database
+    // Insert into database (array column)
     const query = `
       INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `;
-
     const values = [
       title,
       price,
       category,
       store,
       sold || 0,
-      thumbnail,
-      subimages
+      thumbnailUrl,
+      subimagesUrls // <— insert JS array directly
     ];
 
     const { rows } = await pool.query(query, values);
-    res.json(rows[0]);
 
+    res.json(rows[0]);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 };
