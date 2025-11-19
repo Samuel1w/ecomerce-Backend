@@ -4,37 +4,42 @@ import streamifier from 'streamifier';
 
 /**
  * Uploads a buffer (in-memory file) to Cloudinary
- * Returns a Promise with the Cloudinary secure_url
+ * Returns a Promise with the Cloudinary result
  */
 const uploadFromBuffer = (buffer) => {
   return new Promise((resolve, reject) => {
-    const uploadStream = cloudinary.uploader.upload_stream(
+    const stream = cloudinary.uploader.upload_stream(
       { folder: 'luxuria_products' },
       (error, result) => {
-        if (error) return reject(error);
-        resolve(result.secure_url); // only return the URL
+        if (error) reject(error);
+        else resolve(result);
       }
     );
-    streamifier.createReadStream(buffer).pipe(uploadStream);
+    streamifier.createReadStream(buffer).pipe(stream);
   });
 };
 
+/**
+ * Upload a new product (thumbnail + subimages uploaded to Cloudinary)
+ */
 export const uploadProduct = async (req, res) => {
   try {
     const { title, price, category, store, sold } = req.body;
 
+    // Validate required fields
     if (!title || !price || !category || !store) {
       return res.status(400).json({ message: 'Missing required product fields' });
     }
 
+    // Check thumbnail
     if (!req.files?.thumbnail?.length) {
       return res.status(400).json({ message: 'Missing required parameter - thumbnail' });
     }
 
-    // Upload thumbnail
+    // Upload thumbnail from buffer
     const thumbnailUrl = await uploadFromBuffer(req.files.thumbnail[0].buffer);
 
-    // Upload subimages (if any)
+    // Upload subimages from buffer (if any)
     const subimagesUrls = [];
     if (req.files?.subimages?.length > 0) {
       for (const file of req.files.subimages) {
@@ -43,7 +48,7 @@ export const uploadProduct = async (req, res) => {
       }
     }
 
-    // Insert into DB
+    // Insert product into database
     const query = `
       INSERT INTO products (title, price, category, store, sold, thumbnail, subimages)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -60,10 +65,11 @@ export const uploadProduct = async (req, res) => {
     ];
 
     const { rows } = await pool.query(query, values);
+
     res.status(201).json(rows[0]);
 
   } catch (err) {
-    console.error('Upload product error:', err);
+    console.error('Upload product error:', err.message);
     res.status(500).json({ message: err.message });
   }
 };
@@ -91,6 +97,8 @@ export const getProducts = async (req, res) => {
   }
 };
 
+
+
 /**
  * Get single product by ID
  */
@@ -109,6 +117,7 @@ export const getProductById = async (req, res) => {
 
 /**
  * Delete a product by ID
+ * Optional: delete images from Cloudinary if desired
  */
 export const deleteProduct = async (req, res) => {
   try {
@@ -118,7 +127,8 @@ export const deleteProduct = async (req, res) => {
 
     if (rows.length) {
       const { thumbnail, subimages } = rows[0];
-      // Optional: delete images from Cloudinary
+
+      // Optional: delete images from Cloudinary (not mandatory)
       // if (thumbnail) await cloudinary.uploader.destroy(getPublicIdFromUrl(thumbnail));
       // for (const url of subimages) await cloudinary.uploader.destroy(getPublicIdFromUrl(url));
     }
@@ -132,9 +142,10 @@ export const deleteProduct = async (req, res) => {
 };
 
 /**
- * Helper function to extract Cloudinary public_id from URL (optional)
+ * Helper function (optional) to extract Cloudinary public_id from URL
  */
 const getPublicIdFromUrl = (url) => {
+  // Example: https://res.cloudinary.com/demo/image/upload/v1234567890/folder/filename.jpg
   const parts = url.split('/');
   const fileWithExtension = parts[parts.length - 1]; // filename.jpg
   const fileName = fileWithExtension.split('.')[0];
